@@ -1,0 +1,6 @@
+{
+  "name": "radar",
+  "owner": { "name": "CleanCod3Systems" },
+  "description": "radar: a side panel showing what Claude Code has loaded and what it is using.",
+  "plugins": [{ "name": "radar", "source": "./" }]
+}
