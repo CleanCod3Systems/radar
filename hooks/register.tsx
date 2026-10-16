@@ -361,6 +361,20 @@ async function isPaneShown($: EngineInterface): Promise<boolean> {
   return (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
 }
 
+const NEEDS_FULLSCREEN =
+  'Radar docks as a right-hand column only in fullscreen mode. Run /tui fullscreen (Claude restarts and keeps the conversation), then /panel.'
+
+// session.start carries no viewport, so the renderer is read from the same switches Claude Code uses.
+async function isDockable($: EngineInterface): Promise<boolean> {
+  const [settings, noFlicker, classicForced] = await Promise.all([
+    $.settings.read().catch(() => ({}) as Record<string, unknown>),
+    $.env.get('CLAUDE_CODE_NO_FLICKER'),
+    $.env.get('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN'),
+  ])
+  if (classicForced === '1') return false
+  return noFlicker === '1' || (settings as { tui?: unknown }).tui === 'fullscreen'
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -373,7 +387,7 @@ export const register: Register = on => {
     await Promise.all([refreshMeter($), loadHistory($)]).catch(() => undefined)
     if ((await read($, tab)) !== 'now') void refreshLoaded($).catch(() => undefined)
     live = await read($, activity)
-    if (!(await read($, hidden))) {
+    if (!(await read($, hidden)) && (await isDockable($))) {
       isPaneOpen = true
       void $.ui.open({ id: PANE, title: TITLE })
     }
@@ -383,12 +397,14 @@ export const register: Register = on => {
   on('command.run', { command: COMMAND }, async ($, e) => {
     const arg = (e.args ?? '').trim().toLowerCase()
     const wanted = TAB_BY_ARG[arg]
+    const isOpen = (await $.ui.panes()).some(pane => pane.id === PANE)
+    if (e.presentation?.isFullscreen === false && (wanted || !isOpen)) return { text: NEEDS_FULLSCREEN }
     if (wanted) {
       await openPane($)
       await selectTab($, wanted)
       return { text: `Panel opened on "${arg}".` }
     }
-    if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
+    if (isOpen) {
       await update($, hidden, () => true)
       await $.ui.close({ id: PANE })
       return { text: 'Panel closed. Run /panel to open it.' }
@@ -473,6 +489,14 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    // Seated inline (classic renderer, tmux) the pane would push the transcript up: say how to dock it instead.
+    if (e.props.placement === 'inline') {
+      return (
+        <Box flexDirection="column" paddingX={1}>
+          <Text color="warning">{NEEDS_FULLSCREEN}</Text>
+        </Box>
+      )
+    }
     const width = Math.max(24, e.props.bodyColumns)
     const inner = width - 4
     const viewRows = Math.max(12, (e.viewport?.rows ?? 30) - 4)

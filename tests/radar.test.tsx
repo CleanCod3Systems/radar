@@ -60,3 +60,18 @@ test('the "History" tab draws and keeps the tabs reachable', async ($, on) => {
     await ui.unmount()
   }
 })
+
+test('an inline pane shows how to dock it instead of the full panel', async $ => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'radar',
+      surface,
+      component: 'Pane',
+      requestId: 'radar',
+      props: { title: 'radar', isFocused: false, bodyColumns: 120, placement: 'inline' } as never,
+    })
+    expect((await ui.find({ text: /tui fullscreen/ }))?.text).toMatch(/right-hand column/)
+    expect(await ui.find({ key: 'now' })).toBeUndefined()
+    await ui.unmount()
+  }
+})

@@ -1,6 +1,6 @@
 {
   "name": "radar",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": { "name": "insfrangio" },
   "description": "Side panel with what Claude loaded (CLAUDE.md, skills, agents, MCP) and what it is using now (tools, skills, subagents, context).",
   "types": "./types/index.d.ts"
