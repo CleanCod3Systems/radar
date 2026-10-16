@@ -10,10 +10,12 @@ Open the panel with `/panel`, optionally followed by a view:
 
 | Command | Shows |
 | --- | --- |
-| `/panel ahora` | What Claude is using now: tools, skills, subagents |
-| `/panel cargado` | What is loaded: skills, plugins, MCP servers, agents |
-| `/panel historial` | Usage history |
-| `/panel contexto` | Context usage |
+| `/panel now` | What Claude is using now: tools, skills, subagents |
+| `/panel loaded` | What is loaded: skills, plugins, MCP servers, agents |
+| `/panel history` | Usage history |
+| `/panel context` | Context usage |
+
+`/panel` alone opens or closes the panel. Inside it, press `1`–`4` or click a tab.
 
 ## Install
 

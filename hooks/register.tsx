@@ -23,10 +23,10 @@ const RECENT_LIMIT = 30
 const MCP_PREVIEW = 6
 const HISTORY_PREVIEW = 8
 const LIVE_FLUSH_MS = 300
-// The "Cargado" listing barely changes within a session: recount it at most this often.
+// The "Loaded" listing barely changes within a session: recount it at most this often.
 const LOADED_TTL_MS = 5 * 60_000
 // Bumped whenever `Loaded` changes shape: state survives reloads, so an older snapshot must be dropped.
-const LOADED_VERSION = 3
+const LOADED_VERSION = 4
 
 const EMPTY_ACTIVITY: Activity = { toolCounts: [], recent: [], skills: [], agents: [] }
 
@@ -36,29 +36,29 @@ const activity = atom({ plugin: 'radar', key: 'activity' } as const, EMPTY_ACTIV
 const history = atom({ plugin: 'radar', key: 'history' } as const, [] as UsageEntry[])
 const tab = atom({ plugin: 'radar', key: 'tab' } as const, 'now' as PanelTab)
 const hidden = atom({ plugin: 'radar', key: 'isHidden' } as const, false)
-const expanded = atom({ plugin: 'radar', key: 'expanded' } as const, ['skills:proyecto', 'agents:proyecto'] as string[])
+const expanded = atom({ plugin: 'radar', key: 'expanded' } as const, ['skills:project', 'agents:project'] as string[])
 
 const TAB_BY_ARG: Record<string, PanelTab> = {
-  ahora: 'now',
-  cargado: 'loaded',
-  historial: 'history',
-  contexto: 'context',
+  now: 'now',
+  loaded: 'loaded',
+  history: 'history',
+  context: 'context',
 }
 
 const MEMORY_LABEL: Record<string, string> = {
-  User: 'global',
-  Project: 'proyecto',
+  User: 'user',
+  Project: 'project',
   Local: 'local',
-  Managed: 'empresa',
-  AutoMem: 'memoria',
+  Managed: 'managed',
+  AutoMem: 'memory',
 }
 
-const KIND_LABEL: Record<UsageKind, string> = { skill: 'Skills', agent: 'Subagentes', tool: 'Herramientas' }
+const KIND_LABEL: Record<UsageKind, string> = { skill: 'Skills', agent: 'Subagents', tool: 'Tools' }
 
-const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-// Group order in the "Cargado" tab: what the person owns first, vendor packs last.
-const SOURCE_ORDER = ['proyecto', 'global', 'empresa', 'claude.ai', 'Claude Code']
+// Group order in the "Loaded" tab: what the person owns first, vendor packs last.
+const SOURCE_ORDER = ['project', 'user', 'managed', 'claude.ai', 'Claude Code']
 
 // Usage counted since the last flush; written to the store once per turn, not once per call.
 const pending = new Map<string, UsageEntry>()
@@ -97,9 +97,9 @@ type StaticInfo = {
 let staticInfo: Promise<StaticInfo> | undefined
 
 function sourceLabel(source: string, pluginName?: string): string {
-  if (source === 'projectSettings') return 'proyecto'
-  if (source === 'userSettings') return 'global'
-  if (source === 'policySettings') return 'empresa'
+  if (source === 'projectSettings') return 'project'
+  if (source === 'userSettings') return 'user'
+  if (source === 'policySettings') return 'managed'
   if (source === 'syncedSkills') return 'claude.ai'
   if (source === 'built-in') return 'Claude Code'
   if (source === 'plugin') return pluginName ? `plugin ${pluginName}` : 'plugin'
@@ -120,9 +120,9 @@ function when(ms: number): string {
   const now = new Date()
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   const days = Math.floor((new Date(now.toDateString()).getTime() - new Date(date.toDateString()).getTime()) / 86_400_000)
-  if (days === 0) return `hoy ${time}`
-  if (days === 1) return `ayer ${time}`
-  return `${date.getDate()} ${MONTHS[date.getMonth()]}`
+  if (days === 0) return `today ${time}`
+  if (days === 1) return `yesterday ${time}`
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}`
 }
 
 // Set once per load from $HOME, so paths shorten on any OS, not only macOS.
@@ -135,7 +135,7 @@ function homeless(path: string): string {
 function memoryName(path: string, cwd: string): string {
   if (path.startsWith(`${cwd}/`)) return path.slice(cwd.length + 1)
   const memory = path.match(/\/memory\/([^/]+)$/)
-  if (memory) return `memoria/${memory[1]}`
+  if (memory) return `memory/${memory[1]}`
   return homeless(path)
 }
 
@@ -309,7 +309,7 @@ async function refreshLoaded($: EngineInterface, isForced = false): Promise<void
     skills,
     manualSkills: info.manualSkills
       .filter(skill => !listed.has(skill.name))
-      .map(skill => ({ ...skill, source: 'solo con /comando', tokens: 0 })),
+      .map(skill => ({ ...skill, source: 'only via /command', tokens: 0 })),
     skillsTotal: breakdown?.skills?.totalSkills ?? 0,
     agents: (breakdown?.agents ?? []).map(agent => ({
       name: agent.agentType,
@@ -367,8 +367,8 @@ export const register: Register = on => {
     homeDir = (await $.env.get('HOME')) ?? ''
     await $.command.register({
       name: COMMAND,
-      description: 'Abre o cierra el panel Radar. Args: ahora | cargado | historial | contexto',
-      argumentHint: '[ahora|cargado|historial|contexto]',
+      description: 'Open or close the Radar panel. Args: now | loaded | history | context',
+      argumentHint: '[now|loaded|history|context]',
     })
     await Promise.all([refreshMeter($), loadHistory($)]).catch(() => undefined)
     if ((await read($, tab)) !== 'now') void refreshLoaded($).catch(() => undefined)
@@ -386,16 +386,16 @@ export const register: Register = on => {
     if (wanted) {
       await openPane($)
       await selectTab($, wanted)
-      return { text: `Panel abierto en "${arg}".` }
+      return { text: `Panel opened on "${arg}".` }
     }
     if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
       await update($, hidden, () => true)
       await $.ui.close({ id: PANE })
-      return { text: 'Panel cerrado. /panel para abrirlo.' }
+      return { text: 'Panel closed. Run /panel to open it.' }
     }
     await openPane($)
-    return { text: 'Panel abierto. /panel para cerrarlo.' }
-  }).catch(() => ({ text: 'El panel falló; detalle en claude --debug.' }))
+    return { text: 'Panel opened. Run /panel to close it.' }
+  }).catch(() => ({ text: 'The panel failed; see claude --debug for details.' }))
 
   on('ui.close', { id: PANE }, async ($, e, next) => {
     isPaneOpen = false
@@ -477,7 +477,7 @@ export const register: Register = on => {
     const inner = width - 4
     const viewRows = Math.max(12, (e.viewport?.rows ?? 30) - 4)
     // A read subscribes this pane to that value: read only what the open tab draws, so a tool
-    // call (activity) never redraws the long "Cargado" listing and vice versa.
+    // call (activity) never redraws the long "Loaded" listing and vice versa.
     const current = await read($, tab)
     const isNow = current === 'now'
     const [stored, gauge, live, open, used] = await Promise.all([
@@ -578,13 +578,13 @@ export const register: Register = on => {
           <Text color={meterColor} weight="bold">
             {gauge?.totalTokens ? `${percent}%` : '—'}
           </Text>
-          <Text dimColor>{gauge?.totalTokens ? `${kTokens(gauge.totalTokens)} de ${kTokens(gauge.maxTokens)}` : 'contexto tras el 1er mensaje'}</Text>
+          <Text dimColor>{gauge?.totalTokens ? `${kTokens(gauge.totalTokens)} of ${kTokens(gauge.maxTokens)}` : 'context after the first message'}</Text>
         </Box>
         <Box flexDirection="row" gap={1} marginTop={1} flexWrap="wrap">
-          {tabButton('now', '1', 'Ahora')}
-          {tabButton('loaded', '2', 'Cargado')}
-          {tabButton('history', '3', 'Historial')}
-          {tabButton('context', '4', 'Contexto')}
+          {tabButton('now', '1', 'Now')}
+          {tabButton('loaded', '2', 'Loaded')}
+          {tabButton('history', '3', 'History')}
+          {tabButton('context', '4', 'Context')}
         </Box>
       </Box>
     )
@@ -600,18 +600,18 @@ export const register: Register = on => {
         <Box flexDirection="column" width={width}>
           {header}
           {section(
-            'Skills usadas',
+            'Skills used',
             String(live.skills.length),
             live.skills.length === 0 ? (
-              <Text dimColor>ninguna todavía</Text>
+              <Text dimColor>none yet</Text>
             ) : (
               live.skills.map(skill => row(skill.name, `×${skill.count} · ${skill.source}`, undefined, { glyph: '✓', color: 'success' }))
             ),
           )}
           {live.agents.length > 0 &&
             section(
-              'Subagentes',
-              `${live.agents.filter(agent => !agent.isDone).length} activos`,
+              'Subagents',
+              `${live.agents.filter(agent => !agent.isDone).length} running`,
               live.agents
                 .slice(-5)
                 .reverse()
@@ -620,10 +620,10 @@ export const register: Register = on => {
                 ),
             )}
           {section(
-            'Herramientas',
-            `${totalCalls} llamadas`,
+            'Tools',
+            `${totalCalls} calls`,
             <Box flexDirection="column" width={inner}>
-              {live.toolCounts.length === 0 && <Text dimColor>ninguna todavía</Text>}
+              {live.toolCounts.length === 0 && <Text dimColor>none yet</Text>}
               {live.toolCounts.length > 0 && (
                 <Box flexDirection="row" flexWrap="wrap" columnGap={2} width={inner}>
                   {live.toolCounts.slice(0, 10).map(one => (
@@ -652,7 +652,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" width={width}>
           {header}
-          {used.length === 0 && pending.size === 0 && section('Historial', '', <Text dimColor>Se empieza a guardar desde ahora, al terminar cada respuesta.</Text>)}
+          {used.length === 0 && pending.size === 0 && section('History', '', <Text dimColor>Recording starts now and is saved at the end of each reply.</Text>)}
           {kinds.map(kind => {
             const list = used.filter(one => one.kind === kind).sort((a, b) => b.count - a.count)
             if (list.length === 0) return null
@@ -660,17 +660,17 @@ export const register: Register = on => {
             const shown = open.includes(id) ? list : list.slice(0, HISTORY_PREVIEW)
             return section(
               KIND_LABEL[kind],
-              `${list.length} usadas`,
+              `${list.length} used`,
               <Box flexDirection="column" width={inner}>
                 <Box flexDirection="row" width={inner} gap={1}>
                   <Box flexGrow={1}>
-                    <Text dimColor>nombre</Text>
+                    <Text dimColor>name</Text>
                   </Box>
                   <Box width={6} justifyContent="flex-end">
-                    <Text dimColor>veces</Text>
+                    <Text dimColor>times</Text>
                   </Box>
-                  <Box width={11} justifyContent="flex-end">
-                    <Text dimColor>última</Text>
+                  <Box width={15} justifyContent="flex-end">
+                    <Text dimColor>last used</Text>
                   </Box>
                 </Box>
                 {shown.map(one => (
@@ -681,14 +681,14 @@ export const register: Register = on => {
                     <Box width={6} justifyContent="flex-end">
                       <Text color="suggestion">{String(one.count)}</Text>
                     </Box>
-                    <Box width={11} justifyContent="flex-end">
+                    <Box width={15} justifyContent="flex-end">
                       <Text dimColor>{when(one.last)}</Text>
                     </Box>
                   </Box>
                 ))}
                 {list.length > HISTORY_PREVIEW && (
                   <Button key={id} plain onPress={() => toggleGroup($, id)}>
-                    <Text color="suggestion">{open.includes(id) ? '▴ menos' : `▾ ${list.length - HISTORY_PREVIEW} más`}</Text>
+                    <Text color="suggestion">{open.includes(id) ? '▴ less' : `▾ ${list.length - HISTORY_PREVIEW} more`}</Text>
                   </Button>
                 )}
               </Box>,
@@ -697,9 +697,9 @@ export const register: Register = on => {
           {data &&
             never.length > 0 &&
             section(
-              'Skills sin usar',
-              `${never.length} de ${data.skills.length}`,
-              toggle('history:never', 'ver cuáles', since ? `desde ${when(since)}` : '', () => entries(never)),
+              'Unused skills',
+              `${never.length} of ${data.skills.length}`,
+              toggle('history:never', 'show which', since ? `since ${when(since)}` : '', () => entries(never)),
             )}
         </Box>
       )
@@ -709,7 +709,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" width={width}>
           {header}
-          {section('Cargando', '', <Text dimColor>Un segundo…</Text>)}
+          {section('Loading', '', <Text dimColor>One moment…</Text>)}
         </Box>
       )
     }
@@ -727,7 +727,7 @@ export const register: Register = on => {
         <Box flexDirection="column" width={width}>
           {header}
           {section(
-            'Instrucciones',
+            'Instructions',
             `${data.memory.length} · ${kTokens(memoryTokens)}`,
             data.memory.map(file => (
               <Box flexDirection="row" width={inner} gap={1}>
@@ -744,43 +744,43 @@ export const register: Register = on => {
           {data.plugins.length > 0 &&
             section(
               'Plugins',
-              `${pluginsOn} activos · ${data.plugins.length - pluginsOn} apagados`,
+              `${pluginsOn} enabled · ${data.plugins.length - pluginsOn} disabled`,
               data.plugins.map(plugin =>
-                row(plugin.name, plugin.isEnabled ? 'activo' : 'apagado', plugin.isEnabled ? undefined : 'inactive', plugin.isEnabled ? { glyph: '●', color: 'success' } : { glyph: '○', color: 'inactive' }),
+                row(plugin.name, plugin.isEnabled ? 'enabled' : 'disabled', plugin.isEnabled ? undefined : 'inactive', plugin.isEnabled ? { glyph: '●', color: 'success' } : { glyph: '○', color: 'inactive' }),
               ),
             )}
           {section(
             'Skills',
-            `${data.skills.length} activas · ${kTokens(skillTokens)}`,
+            `${data.skills.length} active · ${kTokens(skillTokens)}`,
             <Box flexDirection="column" width={inner}>
               {groupBySource('skills', data.skills).map(group)}
               {data.manualSkills.length > 0 && (
                 <Box flexDirection="column" width={inner} marginTop={1}>
-                  <Text dimColor>Claude no las ve solo; se usan escribiendo /nombre</Text>
-                  {toggle('skills:manual', 'solo con /comando', String(data.manualSkills.length), () => entries(data.manualSkills))}
+                  <Text dimColor>Claude does not pick these on its own; run them as /name</Text>
+                  {toggle('skills:manual', 'only via /command', String(data.manualSkills.length), () => entries(data.manualSkills))}
                 </Box>
               )}
             </Box>,
           )}
-          {section('Subagentes', `${data.agents.length} · ${kTokens(agentTokens)}`, groupBySource('agents', data.agents).map(group))}
+          {section('Subagents', `${data.agents.length} · ${kTokens(agentTokens)}`, groupBySource('agents', data.agents).map(group))}
           {section(
             'MCP',
-            `${data.mcp.length} conectados${data.mcpOffline.length ? ` · ${data.mcpOffline.length} sin conexión` : ''}`,
+            `${data.mcp.length} connected${data.mcpOffline.length ? ` · ${data.mcpOffline.length} offline` : ''}`,
             <Box flexDirection="column" width={inner}>
-              {data.mcpOffline.map(name => row(name, 'sin conexión', 'error', { glyph: '✗', color: 'error' }))}
+              {data.mcpOffline.map(name => row(name, 'offline', 'error', { glyph: '✗', color: 'error' }))}
               {mcpShown.map(server => row(mcpName(server.server), `${server.loaded}/${server.total} · ${kTokens(server.tokens)}`, undefined, { glyph: '●', color: 'success' }))}
               {data.mcp.length > MCP_PREVIEW && (
                 <Button key="mcp:all" plain onPress={() => toggleGroup($, 'mcp:all')}>
-                  <Text color="suggestion">{isMcpOpen ? '▴ menos' : `▾ ${data.mcp.length - MCP_PREVIEW} más`}</Text>
+                  <Text color="suggestion">{isMcpOpen ? '▴ less' : `▾ ${data.mcp.length - MCP_PREVIEW} more`}</Text>
                 </Button>
               )}
-              <Text dimColor>cargadas/total herramientas · {kTokens(mcpTokens)} si se cargan todas</Text>
+              <Text dimColor>loaded/total tools · {kTokens(mcpTokens)} if all are loaded</Text>
             </Box>,
           )}
           {section(
-            'Herramientas de Claude',
+            'Built-in tools',
             String(data.builtinTools.length),
-            toggle('tools:all', 'ver lista', '', () => entries(data.builtinTools)),
+            toggle('tools:all', open.includes('tools:all') ? 'hide list' : 'show list', '', () => entries(data.builtinTools)),
           )}
         </Box>
       )
@@ -794,8 +794,8 @@ export const register: Register = on => {
       <Box flexDirection="column" width={width}>
         {header}
         {section(
-          'En qué se va el contexto',
-          `${kTokens(total)} de ${kTokens(max)}`,
+          'Where the context goes',
+          `${kTokens(total)} of ${kTokens(max)}`,
           <Box flexDirection="column" width={inner}>
             {categories.map(category => {
               const share = max > 0 ? category.tokens / max : 0
@@ -811,7 +811,7 @@ export const register: Register = on => {
                 </Box>
               )
             })}
-            <Text dimColor>Se actualiza al terminar cada respuesta mientras esta pestaña está abierta.</Text>
+            <Text dimColor>Refreshed at the end of each reply while this tab is open.</Text>
           </Box>,
         )}
       </Box>
